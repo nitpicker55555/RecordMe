@@ -1,0 +1,7 @@
+*.log
+*.jsonl
+__pycache__/
+.venv/
+.DS_Store
+.idea/
+LocationHelper.app/Contents/MacOS/
