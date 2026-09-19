@@ -6,9 +6,9 @@
 
 # RecordMe
 
-A small macOS activity recorder. One Python process appends a JSON line every time
-something changes — the focus moves to another window, you go idle, the lid opens
-or closes.
+A small activity recorder for **macOS and Windows**. One Python process appends a
+JSON line every time something changes — the focus moves to another window, you go
+idle, the lid opens or closes.
 
 ## How it works
 
@@ -16,12 +16,22 @@ A `0.5 s` loop watches four things and writes a line **only when one of them fli
 The log is a stream of transitions, not a stream of samples — a row means
 "something happened", never "this is the current state".
 
-| Signal | How |
-|---|---|
-| Active window | `NSWorkspace` for the app, Accessibility API for the title, with a 5 s cache |
-| Idle / AFK | `CGEventSourceSecondsSinceLastEventType` — the HID idle timer the OS already keeps, so no key/mouse hooks and no extra permission |
-| Lid | `ioreg -k AppleClamshellState` |
-| Location | `LocationHelper.app` — native CoreLocation, sampled at startup and on lid-open |
+| Signal | macOS | Windows |
+|---|---|---|
+| Active window | `NSWorkspace` for the app, Accessibility API for the title, 5 s cache | `GetForegroundWindow` + `GetWindowTextW`; app name from the exe's `FileDescription` |
+| Idle / AFK | `CGEventSourceSecondsSinceLastEventType` | `GetLastInputInfo` |
+| Lid | `ioreg -k AppleClamshellState` | — not available |
+| Location | `LocationHelper.app`, native CoreLocation | — not available |
+
+Both idle sources are timers the OS already maintains, so neither platform needs
+key/mouse hooks or an input-monitoring permission.
+
+The Windows side is pure `ctypes` against Win32 — no `pywin32`, no `psutil`, nothing
+to install beyond CPython itself. Platform code lives in `backend/`; `main.py` knows
+nothing about either OS.
+
+Events a platform cannot produce are simply absent from the log rather than written
+as failures, so on Windows there are no `lid_*` or `location_detected` rows at all.
 
 Two ideas are borrowed from [ActivityWatch](https://github.com/ActivityWatch/activitywatch):
 **app and title are separate fields**, and **AFK is recorded explicitly**. Nothing else.
@@ -112,5 +122,9 @@ Homebrew in it; call external tools by absolute path.
 - A remote-desktop session is one window. Everything done inside it is invisible.
 - About 10% of titles come back empty (lock screen, or the title can't be read).
 - Location is city-level: it comes from the network, not GPS.
-- macOS only. Wayland has no notion of an active window at all, and this design
-  would not port.
+- No lid or location on Windows. The lid has no queryable state (only a power
+  notification for the flip, and closing it suspends the process anyway); location
+  needs a WinRT app identity that a plain Python script does not have, so it would
+  always come back Unauthorized. Use IP geolocation instead if you need a position.
+- Linux is not supported. X11 would be workable, but Wayland has no notion of an
+  active window at all, and this design would not port.

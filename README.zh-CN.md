@@ -6,7 +6,7 @@
 
 # RecordMe
 
-一个很小的 macOS 活动记录器。单个 Python 进程，每当发生变化就往日志追加一行 JSON
+一个很小的活动记录器，支持 **macOS 和 Windows**。单个 Python 进程，每当发生变化就往日志追加一行 JSON
 —— 焦点切到别的窗口、人离开了、盖子开合。
 
 ## 原理
@@ -14,12 +14,22 @@
 `0.5` 秒一轮，盯四件事，**只在翻转时写一行**。日志是状态变化流，不是采样流 ——
 每一行的含义是「发生了什么」，不是「现在是什么」。
 
-| 信号 | 怎么拿到的 |
-|---|---|
-| 活跃窗口 | 应用走 `NSWorkspace`，标题走无障碍 API，带 5 秒缓存 |
-| 空闲 / AFK | `CGEventSourceSecondsSinceLastEventType` —— 系统自己维护的 HID 空闲计时器，不用挂键鼠钩子，也不需要额外权限 |
-| 盖子 | `ioreg -k AppleClamshellState` |
-| 位置 | `LocationHelper.app` —— 原生 CoreLocation，启动时和开盖时各取一次 |
+| 信号 | macOS | Windows |
+|---|---|---|
+| 活跃窗口 | 应用走 `NSWorkspace`，标题走无障碍 API，5 秒缓存 | `GetForegroundWindow` + `GetWindowTextW`；应用名取 exe 的 `FileDescription` |
+| 空闲 / AFK | `CGEventSourceSecondsSinceLastEventType` | `GetLastInputInfo` |
+| 盖子 | `ioreg -k AppleClamshellState` | —— 拿不到 |
+| 位置 | `LocationHelper.app`，原生 CoreLocation | —— 拿不到 |
+
+两边的空闲来源都是系统本来就在维护的计时器，所以哪个平台都不用挂键鼠钩子，
+也不需要输入监控权限。
+
+Windows 侧全部用 `ctypes` 直调 Win32，不依赖 `pywin32`、不依赖 `psutil`，除了
+CPython 本身什么都不用装。平台相关的代码都在 `backend/` 里，`main.py` 不认识
+任何一个平台。
+
+某个平台做不到的事，日志里直接不出现，而不是写一条失败记录——所以 Windows 上
+根本不会有 `lid_*` 和 `location_detected` 这两种行。
 
 两点借鉴自 [ActivityWatch](https://github.com/ActivityWatch/activitywatch)：
 **app 和 title 分开成两个字段**，以及**显式记录 AFK**。其余没有。
@@ -100,6 +110,11 @@ python3 main.py
 `/usr/bin:/bin:/usr/sbin:/sbin`，没有 Homebrew，调外部命令要写绝对路径。
 
 ## 限制
+
+- Windows 上没有盖子和位置。盖子没有可查询的状态（只能注册电源通知拿到翻转事件，
+  而且合盖默认就睡眠了，进程本来也停了）；位置需要 WinRT 的 app 身份，普通 Python
+  脚本没有，硬调只会永远返回 Unauthorized。需要位置的话用 IP 归属地代替。
+- 不支持 Linux。X11 上能做，但 Wayland 根本没有「活跃窗口」这个概念，这套设计搬不过去。
 
 - 远程桌面会话只是一个窗口，里面做的一切都看不见。
 - 约 10% 的标题是空字符串（锁屏，或者读不到标题）。
